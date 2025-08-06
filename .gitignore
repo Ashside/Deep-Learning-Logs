@@ -6,3 +6,7 @@
 *.iml
 out
 gen
+
+data
+*.csv
+*.json

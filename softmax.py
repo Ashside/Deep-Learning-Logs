@@ -158,7 +158,8 @@ class Animator:  # @save
 
 
 class SoftMax:
-    def __init__(self):
+    def __init__(self,draw = False):
+        self.draw = draw  # 是否绘制图形
         logging.info('初始化SoftMax模型...')
         self.batch_size = 256
         self.train_iter, self.test_iter = load_data_fashion_mnist(self.batch_size)
@@ -295,15 +296,16 @@ class SoftMax:
         train_metrics = None  # 初始化训练指标
         test_acc = None  # 初始化测试准确率
 
-        # animator = Animator(xlabel='epoch', ylabel='loss',
-        #                     legend=['train loss', 'train acc', 'test acc'])  # 创建一个动画对象，用于绘制训练过程中的损失和准确率
+        animator = Animator(xlabel='epoch', ylabel='loss',
+                            legend=['train loss', 'train acc', 'test acc'])  # 创建一个动画对象，用于绘制训练过程中的损失和准确率
         for epoch in range(_num_epochs):
             # 训练一个epoch
             train_metrics = self.train_epoch_ch3(_net, _train_iter, _loss, _updater)
             # 在测试集上评估模型
             test_acc = self.evaluate_accuracy(_net, _test_iter)
             # 绘制训练过程中的损失和准确率
-            # animator.add(epoch + 1, (train_metrics[0], train_metrics[1], test_acc))
+            if self.draw:
+                animator.add(epoch + 1, (train_metrics[0], train_metrics[1], test_acc))
 
         # 绘制最终的图形
         train_loss, train_acc = train_metrics
@@ -334,7 +336,11 @@ class SoftMax:
         texts = get_fashion_mnist_labels(y[:_n])
         preds = get_fashion_mnist_labels(y_hat.argmax(axis=1)[:_n])
         # 显示图像和预测结果
-        show_images(X[:_n].reshape((_n, 28, 28)), 1, _n, texts + preds)
+        #   show_images(X[:_n].reshape((_n, 28, 28)), 1, _n, texts + preds)
+
+        # 比较预测结果和真实标签
+        logging.info(f'预测结果: {preds}')
+        logging.info(f'真实标签: {texts}')
 
 
 

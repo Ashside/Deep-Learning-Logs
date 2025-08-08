@@ -409,3 +409,18 @@ def train_model(
 
 
 
+from torch.utils import data
+
+
+
+def load_array(data_arrays, batch_size, is_train=True):
+    """
+    将数据加载到DataLoader中 \n
+    通过DataLoader可以方便地迭代数据 \n
+    在每个迭代中，DataLoader会返回一个批次的数据 \n
+    :param data_arrays: 形如(features,labels)，数据数组，包含特征和标签两部分 \n
+    :param batch_size: 批量大小 \n
+    :param is_train: 是否为训练数据 \n
+    """
+    dataset = data.TensorDataset(*data_arrays)  # 创建TensorDataset
+    return data.DataLoader(dataset, batch_size, shuffle=is_train)  # 返回DataLoader

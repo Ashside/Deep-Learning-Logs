@@ -10,3 +10,8 @@ gen
 data
 *.csv
 *.json
+
+models
+
+__pycache__
+*.pyc

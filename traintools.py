@@ -10,6 +10,8 @@ from torchvision import transforms
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
+
+
 class Accumulator:
     """
     在n个变量上累加，每次调用add方法时，将传入的参数逐一累加到data中
@@ -27,6 +29,7 @@ class Accumulator:
 
     def __getitem__(self, idx):
         return self.data[idx]  # 支持通过索引访问data中的元素
+
 
 class Animator:  # @save
     """在动画中绘制数据"""
@@ -70,6 +73,7 @@ class Animator:  # @save
         plt.draw()
         plt.pause(0.1)
         display.clear_output(wait=True)
+
 
 def show_images(imgs, num_rows, num_cols, titles=None, scale=1.5):
     """Plot a list of images.
@@ -152,6 +156,7 @@ def load_data_fashion_mnist(_batch_size, resize=None):
 
     return train_dataloader, test_dataloader
 
+
 def train_epoch_ch3(_net, _train_iter, _loss, _updater):
     """
     训练一个epoch
@@ -185,6 +190,7 @@ def train_epoch_ch3(_net, _train_iter, _loss, _updater):
     # metric[0]是总损失，metric[1]是正确预测的数量，metric[2]是总样本数量
     return metric[0] / metric[2], metric[1] / metric[2]  # 返回平均损失和准确率
 
+
 def accuracy(_y_hat, _y):
     """
     计算预测正确的数量
@@ -216,7 +222,8 @@ def evaluate_accuracy(_net: torch.nn.Module, _data_iter: data.DataLoader):
             metric.add(accuracy(_net(X), y), y.numel())  # 累加正确预测的数量和总样本数量
     return metric[0] / metric[1]  # 返回准确率
 
-def train_ch3(_net, _train_iter, _test_iter, _loss, _num_epochs, _updater,draw=True):
+
+def train_ch3(_net, _train_iter, _test_iter, _loss, _num_epochs, _updater, draw=True):
     """
 
     :param draw:
@@ -250,10 +257,7 @@ def train_ch3(_net, _train_iter, _test_iter, _loss, _num_epochs, _updater,draw=T
     assert 0.7 <= test_acc <= 1, test_acc
 
 
-
-
-
-def predict( _net, _test_iter, _n=6):
+def predict(_net, _test_iter, _n=6):
     """
     在测试集上进行预测
     :param _net: 模型
@@ -275,11 +279,13 @@ def predict( _net, _test_iter, _n=6):
     logging.info(f'真实标签: {texts}')
 
 
+
+
 import torch
-import torch.nn as nn
-import time
 import matplotlib.pyplot as plt
 from datetime import datetime
+import os
+import pandas as pd  # 用于保存 CSV 日志
 
 
 def train_model(
@@ -291,55 +297,84 @@ def train_model(
         num_epochs=10,
         plot=True,
         device=None,
-        early_stopping_patience=5
+        early_stopping=False,
+        early_stopping_patience=5,
+        save_model=False,
+        save_log=False,  # 新增：是否保存训练日志
 ):
+    """
+    通用的 PyTorch 模型训练函数，支持早停、模型保存、训练日志保存等功能。
+    :param    model: 要训练的模型
+    :param    train_loader: 训练集 DataLoader
+    :param    test_loader: 测试集 DataLoader
+    :param    criterion: 损失函数
+    :param    optimizer : 优化器
+    :param    num_epochs: 最大训练轮数
+    :param    plot: 是否绘制训练曲线
+    :param    device : 训练设备 (默认自动选择 cuda / cpu)
+    :param    early_stopping : 是否启用早停功能
+    :param    early_stopping_patience : 早停容忍轮数
+    :param    save_model : 是否保存模型
+    :param    save_log: 是否保存训练日志到 CSV
+    """
+    # 自动选择设备
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
+    # 用于保存训练过程的损失和准确率
     train_losses = []
     test_losses = []
     test_accuracies = []
 
+    # 早停相关变量
     best_accuracy = 0.0
     epochs_no_improve = 0
     best_model_wts = None
 
+    # 循环训练
     for epoch in range(num_epochs):
-        model.train()
+        model.train()  # 设置为训练模式
         running_loss = 0.0
 
+        # ----------- 训练阶段 -----------
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
 
-            optimizer.zero_grad()
-            outputs = model(inputs)
-
+            optimizer.zero_grad()  # 清空梯度
+            outputs = model(inputs)  # 前向传播
 
             loss = criterion(outputs, labels)
+            # 如果 loss 是向量，取平均值
             loss = loss.mean() if loss.dim() > 0 else loss
-            loss.backward()
 
-            optimizer.step()
 
-            running_loss += loss.item() * inputs.size(0)
 
+            loss.backward()  # 反向传播
+            optimizer.step()  # 更新参数
+
+            running_loss += loss.item() * inputs.size(0)  # 累加损失
+
+        # 计算该轮训练的平均损失
         epoch_loss = running_loss / len(train_loader.dataset)
         train_losses.append(epoch_loss)
 
-        # Evaluation
+        # ----------- 测试阶段 -----------
         model.eval()
         test_loss = 0.0
         correct = 0
         total = 0
 
-        with torch.no_grad():
+        with torch.no_grad():  # 测试阶段不计算梯度
             for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)
+
                 loss = criterion(outputs, labels)
+                loss = loss.mean() if loss.dim() > 0 else loss
                 test_loss += loss.item() * inputs.size(0)
 
+                # 计算准确率
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
@@ -349,30 +384,37 @@ def train_model(
         test_losses.append(epoch_test_loss)
         test_accuracies.append(accuracy)
 
+        # 打印该轮的训练结果
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Train Loss: {epoch_loss:.4f}, "
               f"Test Loss: {epoch_test_loss:.4f}, "
               f"Test Accuracy: {accuracy:.4f}")
 
-        # Early Stopping logic
-        if accuracy > best_accuracy:
-            best_accuracy = accuracy
-            best_model_wts = model.state_dict()
-            epochs_no_improve = 0
+        # ----------- 早停逻辑 -----------
+        if early_stopping:
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_model_wts = model.state_dict()
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= early_stopping_patience:
+                    print(f"Early stopping triggered at epoch {epoch + 1}")
+                    break
         else:
-            epochs_no_improve += 1
-            if epochs_no_improve >= early_stopping_patience:
-                print(f"Early stopping triggered at epoch {epoch + 1}")
-                break
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_model_wts = model.state_dict()
 
-    # Restore best model weights
+    # 恢复最佳模型参数
     if best_model_wts is not None:
         model.load_state_dict(best_model_wts)
 
-    # Plotting
+    # ----------- 绘制训练曲线 -----------
     if plot:
         plt.figure(figsize=(12, 5))
 
+        # 损失曲线
         plt.subplot(1, 2, 1)
         plt.plot(range(1, len(train_losses) + 1), train_losses, label='Train Loss')
         plt.plot(range(1, len(test_losses) + 1), test_losses, label='Test Loss')
@@ -381,6 +423,7 @@ def train_model(
         plt.title('Loss Curve')
         plt.legend()
 
+        # 准确率曲线
         plt.subplot(1, 2, 2)
         plt.plot(range(1, len(test_accuracies) + 1), test_accuracies, label='Test Accuracy', color='green')
         plt.xlabel('Epoch')
@@ -391,26 +434,40 @@ def train_model(
         plt.tight_layout()
         plt.show()
 
+    # ----------- 保存模型 -----------
+    if save_model:
+        save_dir = './models'
+        os.makedirs(save_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path_pth = os.path.join(save_dir, f"model_{timestamp}.pth")
+        path_pt = os.path.join(save_dir, f"model_{timestamp}.pt")
 
-    # Save model
-    import os
-    save_dir = './models'
-    os.makedirs(save_dir, exist_ok=True)
+        torch.save(model.state_dict(), path_pth)  # 保存权重
+        torch.save(model, path_pt)  # 保存完整模型
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path_pth = os.path.join(save_dir, f"model_{timestamp}.pth")
-    path_pt = os.path.join(save_dir, f"model_{timestamp}.pt")
+        print(f"Model weights saved to: {path_pth}")
+        print(f"Full model saved to: {path_pt}")
 
-    torch.save(model.state_dict(), path_pth)
-    torch.save(model, path_pt)
+    # ----------- 保存训练日志 -----------
+    if save_log:
+        log_dir = './logs'
+        os.makedirs(log_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = os.path.join(log_dir, f"train_log_{timestamp}.csv")
 
-    print(f"Model weights saved to: {path_pth}")
-    print(f"Full model saved to: {path_pt}")
+        # 将训练过程数据转为 DataFrame
+        log_df = pd.DataFrame({
+            "epoch": range(1, len(train_losses) + 1),
+            "train_loss": train_losses,
+            "test_loss": test_losses,
+            "test_accuracy": test_accuracies
+        })
 
+        log_df.to_csv(log_path, index=False)
+        print(f"Training log saved to: {log_path}")
 
 
 from torch.utils import data
-
 
 
 def load_array(data_arrays, batch_size, is_train=True):
@@ -424,3 +481,41 @@ def load_array(data_arrays, batch_size, is_train=True):
     """
     dataset = data.TensorDataset(*data_arrays)  # 创建TensorDataset
     return data.DataLoader(dataset, batch_size, shuffle=is_train)  # 返回DataLoader
+
+
+def synthetic_data(w, b, num_examples):
+    """
+    Generate y = Xw + b + noise \n
+    生成线性回归的合成数据集 \n
+    # w: 权重向量，形状为 (n,1) \n
+    # b: 偏置项，标量 \n
+    # num_examples: 样本数量
+    """
+
+    X = torch.normal(0, 1, (num_examples, len(w)))
+    y = torch.matmul(X, w) + b
+    y += torch.normal(0, 0.01, y.shape)
+
+
+    # 返回特征和标签
+    # X: 特征矩阵，形状为 (num_examples, len(w))
+    # y: 标签向量，形状为 (num_examples,)
+    # 将y转换为列向量
+    return X, y.reshape((-1, 1))
+
+def linear_reg(X, w, b):
+    """
+    线性回归模型 \n
+    # X: 特征矩阵，形状为 (num_examples, n) \n
+    # w: 权重向量，形状为 (n,1) \n
+    # b: 偏置项，标量 \n
+    """
+    return torch.matmul(X, w) + b
+
+def squared_loss(y_hat, y):
+    """
+    均方误差损失函数 \n
+    # y_hat: 模型预测值，形状为 (num_examples, 1) \n
+    # y: 真实标签，形状为 (num_examples, 1) \n
+    """
+    return (y_hat - y.view(y_hat.shape)) ** 2 / 2

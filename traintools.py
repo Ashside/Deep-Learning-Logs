@@ -5,6 +5,7 @@ import torchvision
 from IPython import display
 from matplotlib import pyplot as plt
 from matplotlib_inline import backend_inline
+from torch import nn
 from torch.utils import data
 from torchvision import transforms
 
@@ -519,3 +520,31 @@ def squared_loss(y_hat, y):
     # y: 真实标签，形状为 (num_examples, 1) \n
     """
     return (y_hat - y.view(y_hat.shape)) ** 2 / 2
+
+
+"""
+以下为卷积神经网络相关代码
+"""
+
+def corr2d(X, K):
+    """
+    二维互相关运算 \n
+    :param X:  输入矩阵
+    :param K:  卷积核
+    :return:  输出矩阵
+    """
+    h,w = K.shape
+    Y = torch.zeros((X.shape[0] - h + 1, X.shape[1] - w + 1))
+    for i in range(Y.shape[0]):
+        for j in range(Y.shape[1]):
+            Y[i,j] = (X[i:i+h, j:j+w] * K).sum()
+    return Y
+
+class Conv2D(nn.Module):
+    def __init__(self,kernel_size):
+        super(Conv2D, self).__init__()
+        self.weight = nn.Parameter(torch.rand(kernel_size))
+        self.bias = nn.Parameter(torch.zeros(1))
+    def forward(self, x):
+        return corr2d(x, self.weight) + self.bias
+

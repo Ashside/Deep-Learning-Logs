@@ -1,4 +1,5 @@
 import logging
+import time
 
 import torch
 import torchvision
@@ -548,3 +549,106 @@ class Conv2D(nn.Module):
     def forward(self, x):
         return corr2d(x, self.weight) + self.bias
 
+
+def evaluate_accuracy_gpu(net, data_iter, device=None):
+    if isinstance(net, nn.Module):
+        net.eval()  # Set the model to evaluation mode
+        if device is None:
+            device = next(iter(net.parameters())).device  # Get the device from the model parameters
+
+    metric = Accumulator(2)  # Initialize an accumulator for correct predictions and total samples
+    with torch.no_grad():  # Disable gradient calculation for evaluation
+        for X, y in data_iter:
+            if isinstance(X, list):
+                X = [x.to(device) for x in X]  # Move input data to the specified device
+            else:
+                X = X.to(device)  # Move input data to the specified device
+            y = y.to(device)  # Move labels to the specified device
+            metric.add(accuracy(net(X), y), y.numel())
+    return metric[0] / metric[1]  # Return the accuracy as the ratio
+
+
+
+def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
+    """
+    训练卷积神经网络 \n
+    :param net:  卷积神经网络模型 \n
+    :param train_iter:  训练数据迭代器 \n
+    :param test_iter:  测试数据迭代器 \n
+    :param num_epochs:  训练轮数 \n
+    :param lr:  学习率 \n
+    :param device:  设备 \n
+    """
+    def init_weights(m):
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            # 使用Xavier初始化权重，防止梯度消失或爆炸
+            nn.init.xavier_uniform_(m.weight)
+    net.apply(init_weights)
+
+    print('training on', device)
+    net.to(device)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
+    loss = nn.CrossEntropyLoss()
+
+    # 用于存储每个epoch的指标
+    all_train_loss, all_train_acc, all_test_acc = [], [], []
+
+    for epoch in range(num_epochs):
+        metric = Accumulator(3)
+        net.train()  # 设置模型为训练模式
+        for i, (X, y) in enumerate(train_iter):
+            optimizer.zero_grad()
+            X, y = X.to(device), y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l * X.shape[0], accuracy(y_hat, y), X.shape[0])
+
+        train_loss = metric[0] / metric[2]
+        train_acc = metric[1] / metric[2]
+        test_acc = evaluate_accuracy_gpu(net, test_iter, device)
+
+        all_train_loss.append(train_loss)
+        all_train_acc.append(train_acc)
+        all_test_acc.append(test_acc)
+
+        print(f'epoch {epoch + 1}, loss {train_loss:.3f}, train acc {train_acc:.3f}, '
+              f'test acc {test_acc:.3f}')
+
+    # 训练结束后绘制曲线
+    epochs_range = range(1, num_epochs + 1)
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs_range, all_train_loss, label='Train Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training Loss')
+    plt.legend()
+    plt.grid(True)
+
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs_range, all_train_acc, label='Train Accuracy')
+    plt.plot(epochs_range, all_test_acc, label='Test Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title('Training & Test Accuracy')
+    plt.legend()
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
+    print(f'loss {all_train_loss[-1]:.3f}, train acc {all_train_acc[-1]:.3f}, '
+          f'test acc {all_test_acc[-1]:.3f}')
+
+
+def try_gpu(i=0):
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+def try_all_gpus():
+    return [try_gpu(i) for i in range(torch.cuda.device_count())] or [torch.device('cpu')]

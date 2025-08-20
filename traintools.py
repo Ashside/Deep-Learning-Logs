@@ -1,13 +1,16 @@
+import collections
 import logging
+import random
 import re
 import time
 
+from sympy import use
 import torch
 import torchvision
 from IPython import display
 from matplotlib import pyplot as plt
 from matplotlib_inline import backend_inline
-from torch import nn
+from torch import R, nn
 from torch.utils import data
 from torchvision import transforms
 
@@ -724,6 +727,15 @@ def tokenize(lines, token='word'):
 
 
 
+def read_time_machine():
+    DATA_HUB['time_machine'] = (
+	DATA_URL + 'timemachine.txt',
+	'090b5e7e70c295757f55df93cb0a180b9691891a'
+)
+    with open(download('time_machine'), 'r') as f:
+        lines = f.readlines()
+    return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
+
 class Vocab:
 	def __init__(self,tokens = None,min_freq =0,reserved_tokens=None):
 
@@ -771,3 +783,86 @@ class Vocab:
 		if len(tokens) == 0 or isinstance(tokens[0], list):
 			tokens = [token for sublist in tokens for token in sublist]
 		return collections.Counter(tokens)
+     
+
+
+
+
+
+def seq_data_iter_random(corpus,batch_size,seq_len):
+    """从corpus序列中随机采样生成小批量数据
+    :param corpus: 待处理的文本序列
+    :param batch_size: 每个小批量的大小
+    :param num_steps: 每个小批量的时间步数
+    """
+    corpus = corpus[random.randint(0,seq_len-1):]# 随机选择起始位置
+    num_subseqs = (len(corpus) - 1) // seq_len # 计算子序列的数量
+    # 长度为seq_len的子序列的起始索引
+    initial_indices = list(range(0,num_subseqs*seq_len,seq_len))
+    random.shuffle(initial_indices)  # 打乱起始索引的顺序
+
+    def data(pos):
+        return corpus[pos:pos + seq_len]  # 返回从pos开始的长度为seq_len的子序列    
+    
+
+    num_batches = len(initial_indices) // batch_size  # 计算小批量的数量
+    for i in range(0,num_batches*batch_size,batch_size):
+
+        batch_indices = initial_indices[i:i+batch_size]  # 取出一个小批量的起始索引
+        X = [data(j) for j in batch_indices]  # 生成输入
+        Y = [data(j+1) for j in batch_indices]  # 生成标签
+        yield torch.tensor(X),torch.tensor(Y)  # 返回一个小批量的输入和标签
+        
+
+def seq_data_iter_sequential(corpus, batch_size, seq_len):
+    """从corpus序列中按顺序采样生成小批量数据
+    :param corpus: 待处理的文本序列
+    :param batch_size: 每个小批量的大小
+    :param seq_len: 每个样本的时间步长度
+    """
+    offset = random.randint(0, seq_len)
+    num_tokens = ((len(corpus) - offset - 1) // batch_size) * seq_len  # 计算每个小批量的样本数量
+    Xs = torch.tensor(corpus[offset:offset + num_tokens])
+    Ys = torch.tensor(corpus[offset + 1:offset + num_tokens + 1])
+    Xs,Ys = Xs.reshape((batch_size, -1)), Ys.reshape((batch_size, -1))  # 将输入和标签重塑为(batch_size, num_samples)
+    num_batches = Xs.shape[1] // seq_len
+    for i in range(0, seq_len * num_batches, seq_len):
+        yield Xs[:, i:i + seq_len], Ys[:, i:i + seq_len]
+
+
+def load_time_machine(max_tokens = -1):
+	lines = read_time_machine()
+	tokens = tokenize(lines, 'char')
+	vocab = Vocab(tokens)
+
+	# 将所有token展平
+	corpus = [token for sublist in tokens for token in sublist]
+
+	if max_tokens > 0:
+		corpus = corpus[:max_tokens]
+
+	return corpus, vocab
+class SeqDataLoader:
+    def __init__(self,batch_size,num_steps,use_random_iter,max_tokens):
+        if use_random_iter:
+            self.data_iter = seq_data_iter_random
+        else:
+            self.data_iter = seq_data_iter_sequential
+        self.corpus,self.vocab = load_time_machine()
+        self.batch_size = batch_size
+        self.num_steps = num_steps
+        self.max_tokens = max_tokens
+
+    def __iter__(self):
+        return self.data_iter(self.corpus, self.batch_size, self.num_steps)
+
+
+def load_data_time_machine(batch_size, num_steps, use_random_iter=False, max_tokens=10000):
+    """加载《时间机器》的数据集
+    :param batch_size: 每个小批量的大小
+    :param num_steps: 每个小批量的时间步数
+    :param use_random_iter: 是否使用随机采样
+    :param max_tokens: 最大的token数量
+    """
+    data_iter = SeqDataLoader(batch_size, num_steps, use_random_iter, max_tokens)
+    return data_iter, data_iter.vocab  # 返回数据迭代器和词汇表

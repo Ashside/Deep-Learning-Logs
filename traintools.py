@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 
 import torch
@@ -705,3 +706,68 @@ def download_all():  #@save
     """下载DATA_HUB中的所有文件"""
     for name in DATA_HUB:
         download(name)
+
+
+def tokenize(lines, token='word'):
+    """
+    每行将被分割成单词或字符。
+    :param lines: The input lines to tokenize.
+    :param token: The type of tokenization ('word' or 'char').
+    :return: A list of tokenized lines.
+    """
+    if token == 'word':
+        return [re.findall(r'\w+', line) for line in lines]
+    elif token == 'char':
+        return [list(line) for line in lines]
+    else:
+        raise ValueError(f"Unknown token type: {token}")
+
+
+
+class Vocab:
+	def __init__(self,tokens = None,min_freq =0,reserved_tokens=None):
+
+		if tokens is None:
+			tokens = []
+
+		if reserved_tokens is None:
+			reserved_tokens = []
+
+		self._token_freqs = self.count_corpus(tokens)
+		self._token_freqs = sorted(self.token_freqs.items(), key=lambda x: x[1], reverse=True)
+		self.idx_to_token = ['<unk>'] + reserved_tokens
+		self.token_to_idx = {token: idx for idx, token in enumerate(self.idx_to_token)}
+		for token,freq in self._token_freqs:
+			if freq >= min_freq and token not in self.token_to_idx:
+				self.idx_to_token.append(token)
+				self.token_to_idx[token] = len(self.idx_to_token) - 1
+			
+
+	def __len__(self):
+		return len(self.idx_to_token)
+	
+	def __getitem__(self, tokens):
+		if not isinstance(tokens, (list, tuple)): 	# 如果是单个token
+			return self.token_to_idx.get(tokens, self.unk)
+		# 如果是多个token
+		return [self.__getitem__(token) for token in tokens]
+
+	def to_tokens(self, indices):
+		if not isinstance(indices, (list, tuple)): # 如果是单个索引
+			return self.idx_to_token[indices]
+		# 如果是多个索引
+		return [self.idx_to_token[idx] for idx in indices]
+
+	@property
+	def unk(self):
+		return 0
+
+	@property
+	def token_freqs(self):
+		return self._token_freqs
+
+	def count_corpus(self,tokens):
+		# 将tokens展平
+		if len(tokens) == 0 or isinstance(tokens[0], list):
+			tokens = [token for sublist in tokens for token in sublist]
+		return collections.Counter(tokens)

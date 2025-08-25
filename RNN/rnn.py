@@ -248,3 +248,7 @@ class RNNModelScratch: #@save
 
     def begin_state(self, batch_size, device):
         return self.init_state(batch_size, self.num_hiddens, device)
+    
+
+
+
